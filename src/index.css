@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-feature-settings: "tnum" 1;
+  }
+
+  body {
+    margin: 0;
+    font-family: "Tajawal", "Cairo", system-ui, sans-serif;
+    @apply bg-slate-100 text-slate-900 dark:bg-[#0F3460] dark:text-slate-100;
+  }
+
+  #root {
+    min-height: 100svh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gold/40 rounded-full;
+  }
+
+  /* numbers always render in Latin digits (en-US locale) even inside an RTL document */
+  .ltr-nums {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-card-lg bg-white dark:bg-surface shadow-sm border border-slate-200/70 dark:border-white/5;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-semibold transition active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-gold {
+    @apply btn bg-gold text-[#16213E] hover:bg-gold-light shadow;
+  }
+
+  .btn-buy {
+    @apply btn bg-buy text-white hover:bg-buy-light;
+  }
+
+  .btn-sell {
+    @apply btn bg-sell text-white hover:bg-sell-light;
+  }
+
+  .btn-ghost {
+    @apply btn bg-slate-200/70 text-slate-800 hover:bg-slate-300/70 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2.5 text-inherit outline-none focus:ring-2 focus:ring-gold/60 transition;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-slate-500 dark:text-slate-300 mb-1;
+  }
+}
