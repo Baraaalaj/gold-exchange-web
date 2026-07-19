@@ -10,15 +10,49 @@ export interface LotGroup {
   docs: Transaction[]; // BUY docs with remainingAmount > 0, sorted oldest -> newest
 }
 
-/** Groups active BUY lots by price (within PRICE_TOLERANCE) for display only. */
-export function groupBuyLots(buyTxs: Transaction[]): LotGroup[] {
-  const active = buyTxs
-    .filter((t) => t.transactionType === "BUY" && t.remainingAmount > 0)
+/**
+ * Computes each BUY transaction's remaining amount via global FIFO (oldest BUY first)
+ * across the full USDT history, ignoring any stored `remainingAmount`. This is required
+ * because legacy transactions (e.g. imported from the Android app) never had a per-lot
+ * remaining amount tracked, so trusting the stored field would show them as fully unsold.
+ */
+function computeFifoRemaining(usdtTxs: Transaction[]): Map<string, number> {
+  const sorted = [...usdtTxs].sort((a, b) => a.timestamp - b.timestamp);
+  const remaining = new Map<string, number>();
+  const buyQueue: Transaction[] = [];
+
+  for (const tx of sorted) {
+    if (tx.transactionType === "BUY") {
+      remaining.set(tx.id, tx.amount);
+      buyQueue.push(tx);
+    } else {
+      let toDeduct = tx.amount;
+      for (const buy of buyQueue) {
+        if (toDeduct <= 1e-9) break;
+        const rem = remaining.get(buy.id) ?? 0;
+        if (rem <= 0) continue;
+        const deduct = Math.min(rem, toDeduct);
+        remaining.set(buy.id, rem - deduct);
+        toDeduct -= deduct;
+      }
+    }
+  }
+
+  return remaining;
+}
+
+/** Groups active BUY lots by price (within PRICE_TOLERANCE) for display only. `usdtTxs` must include BUY and SELL. */
+export function groupBuyLots(usdtTxs: Transaction[]): LotGroup[] {
+  const remaining = computeFifoRemaining(usdtTxs);
+  const active = usdtTxs
+    .filter((t) => t.transactionType === "BUY" && (remaining.get(t.id) ?? 0) > 1e-9)
     .sort((a, b) => a.timestamp - b.timestamp);
 
   const groups: LotGroup[] = [];
 
   for (const tx of active) {
+    const remAmount = remaining.get(tx.id) ?? 0;
+    const doc = { ...tx, remainingAmount: remAmount };
     let group = groups.find((g) => Math.abs(g.price - tx.price) < PRICE_TOLERANCE);
     if (!group) {
       group = {
@@ -30,8 +64,8 @@ export function groupBuyLots(buyTxs: Transaction[]): LotGroup[] {
       };
       groups.push(group);
     }
-    group.docs.push(tx);
-    group.totalRemaining += tx.remainingAmount;
+    group.docs.push(doc);
+    group.totalRemaining += remAmount;
     group.totalOriginal += tx.amount;
     group.earliestTimestamp = Math.min(group.earliestTimestamp, tx.timestamp);
   }
@@ -78,19 +112,42 @@ export function fifoDeduct(docs: Transaction[], amountToSell: number): FifoDeduc
   return deductions;
 }
 
-/** Total USDT balance = initial balance + remaining amount across all active BUY lots. */
-export function totalUsdtBalance(initialBalance: number, buyTxs: Transaction[]): number {
-  const remaining = buyTxs
+/** Total USDT balance = initial balance + total bought - total sold. Expects BUY and SELL txs together. */
+export function totalUsdtBalance(initialBalance: number, usdtTxs: Transaction[]): number {
+  const totalBought = usdtTxs
     .filter((t) => t.transactionType === "BUY")
-    .reduce((sum, t) => sum + t.remainingAmount, 0);
-  return initialBalance + remaining;
+    .reduce((sum, t) => sum + t.amount, 0);
+  const totalSold = usdtTxs
+    .filter((t) => t.transactionType === "SELL")
+    .reduce((sum, t) => sum + t.amount, 0);
+  return initialBalance + totalBought - totalSold;
 }
 
-/** Weighted average buy rate across all active (remaining > 0) BUY lots. */
-export function weightedAvgRate(buyTxs: Transaction[]): number {
-  const active = buyTxs.filter((t) => t.transactionType === "BUY" && t.remainingAmount > 0);
-  const totalRemaining = active.reduce((sum, t) => sum + t.remainingAmount, 0);
-  if (totalRemaining <= 0) return 0;
-  const weighted = active.reduce((sum, t) => sum + t.remainingAmount * t.price, 0);
-  return weighted / totalRemaining;
+/**
+ * Weighted average buy rate as a running average over the full USDT history (BUY and SELL,
+ * sorted by timestamp): each BUY blends its price into the average proportionally to the
+ * balance at that point; each SELL only reduces the balance and leaves the average untouched;
+ * the average resets once the balance hits zero.
+ */
+export function weightedAvgRate(usdtTxs: Transaction[]): number {
+  const sorted = [...usdtTxs].sort((a, b) => a.timestamp - b.timestamp);
+
+  let balance = 0;
+  let avg = 0;
+
+  for (const tx of sorted) {
+    if (tx.transactionType === "BUY") {
+      const newBalance = balance + tx.amount;
+      avg = newBalance > 1e-9 ? (balance * avg + tx.amount * tx.price) / newBalance : 0;
+      balance = newBalance;
+    } else {
+      balance -= tx.amount;
+      if (balance <= 1e-9) {
+        balance = 0;
+        avg = 0;
+      }
+    }
+  }
+
+  return avg;
 }

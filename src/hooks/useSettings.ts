@@ -6,12 +6,22 @@ import type { HomeNote } from "../types";
 export function useUsdtSettings() {
   const [initialBalance, setInitialBalance] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "settings", "usdt"), (snap) => {
-      setInitialBalance(snap.exists() ? (snap.data().initialBalance as number) ?? 0 : 0);
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      doc(db, "settings", "usdt"),
+      (snap) => {
+        setInitialBalance(snap.exists() ? (snap.data().initialBalance as number) ?? 0 : 0);
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        console.error("useUsdtSettings onSnapshot error:", err);
+        setError(err.message);
+        setLoading(false);
+      }
+    );
     return unsub;
   }, []);
 
@@ -19,7 +29,7 @@ export function useUsdtSettings() {
     await setDoc(doc(db, "settings", "usdt"), { initialBalance: value }, { merge: true });
   };
 
-  return { initialBalance, loading, updateInitialBalance };
+  return { initialBalance, loading, error, updateInitialBalance };
 }
 
 export function useHomeNotes() {

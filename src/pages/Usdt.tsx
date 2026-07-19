@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pencil, Plus, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { Pencil, Plus, TrendingDown, TrendingUp, Trash2, Wallet } from "lucide-react";
 import { useTransactions } from "../hooks/useTransactions";
 import { useUsdtSettings } from "../hooks/useSettings";
 import { useTodayRate } from "../hooks/useDailyRates";
@@ -8,21 +8,27 @@ import { fmtMoney, fmtDate } from "../lib/format";
 import { isToday } from "../lib/dateRanges";
 import { Modal } from "../components/Modal";
 import { PersonSelect } from "../components/PersonSelect";
-import { createUsdtBuy, createUsdtSell, editLotRemaining, NO_PERSON } from "../lib/transactionActions";
+import {
+  createUsdtBuy,
+  createUsdtSell,
+  deleteTransaction,
+  editLotAmount,
+  NO_PERSON,
+} from "../lib/transactionActions";
 import type { Transaction } from "../types";
 
 export function Usdt() {
-  const { transactions } = useTransactions();
-  const { initialBalance } = useUsdtSettings();
+  const { transactions, error: txError } = useTransactions();
+  const { initialBalance, error: balanceError } = useUsdtSettings();
   const { rate } = useTodayRate();
+  const loadError = txError || balanceError;
 
   const usdtTxs = useMemo(() => transactions.filter((t) => t.serviceType === "USDT"), [transactions]);
-  const buyTxs = useMemo(() => usdtTxs.filter((t) => t.transactionType === "BUY"), [usdtTxs]);
 
-  const balance = totalUsdtBalance(initialBalance, buyTxs);
-  const avgRate = weightedAvgRate(buyTxs);
+  const balance = totalUsdtBalance(initialBalance, usdtTxs);
+  const avgRate = weightedAvgRate(usdtTxs);
   const expectedProfit = rate ? (rate.sellRate - avgRate) * balance : 0;
-  const lotGroups = useMemo(() => groupBuyLots(buyTxs), [buyTxs]);
+  const lotGroups = useMemo(() => groupBuyLots(usdtTxs), [usdtTxs]);
 
   const todayTxs = useMemo(() => usdtTxs.filter((t) => isToday(t.timestamp)), [usdtTxs]);
   const todayBought = todayTxs.filter((t) => t.transactionType === "BUY").reduce((s, t) => s + t.amount, 0);
@@ -32,6 +38,24 @@ export function Usdt() {
   const [buyOpen, setBuyOpen] = useState(false);
   const [sellGroup, setSellGroup] = useState<LotGroup | null>(null);
   const [editGroup, setEditGroup] = useState<LotGroup | null>(null);
+  const [deletingPrice, setDeletingPrice] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+
+  const handleDeleteGroup = async (group: LotGroup) => {
+    const ok = window.confirm(
+      `هل أنت متأكد من حذف خانة ${fmtMoney(group.price)}؟ سيتم خصم ${fmtMoney(group.totalOriginal)} من الرصيد الكلي.`
+    );
+    if (!ok) return;
+    setDeleteError("");
+    setDeletingPrice(group.price);
+    try {
+      await Promise.all(group.docs.map((d) => deleteTransaction(d)));
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "حدث خطأ أثناء الحذف");
+    } finally {
+      setDeletingPrice(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -44,6 +68,17 @@ export function Usdt() {
           <Plus size={18} /> شراء USDT
         </button>
       </div>
+
+      {loadError && (
+        <div className="card p-4 bg-sell/10 border border-sell/30 text-sell text-sm">
+          تعذّر تحميل البيانات من Firestore: {loadError}
+          <br />
+          تأكد من صلاحيات (rules) قاعدة البيانات ومن تسجيل الدخول بشكل صحيح.
+        </div>
+      )}
+      {deleteError && (
+        <div className="card p-4 bg-sell/10 border border-sell/30 text-sell text-sm">{deleteError}</div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Wallet} label="إجمالي الرصيد" value={`₮ ${fmtMoney(balance)}`} />
@@ -89,6 +124,8 @@ export function Usdt() {
                 group={g}
                 onSell={() => setSellGroup(g)}
                 onEdit={() => setEditGroup(g)}
+                onDelete={() => handleDeleteGroup(g)}
+                deleting={deletingPrice === g.price}
               />
             ))}
           </div>
@@ -144,10 +181,14 @@ function LotCard({
   group,
   onSell,
   onEdit,
+  onDelete,
+  deleting,
 }: {
   group: LotGroup;
   onSell: () => void;
   onEdit: () => void;
+  onDelete: () => void;
+  deleting: boolean;
 }) {
   const pct = group.totalOriginal > 0 ? (group.totalRemaining / group.totalOriginal) * 100 : 0;
 
@@ -158,12 +199,21 @@ function LotCard({
           <p className="text-xs text-slate-500 dark:text-slate-400">سعر الشراء</p>
           <p className="text-xl font-extrabold ltr-nums">{fmtMoney(group.price)}</p>
         </div>
-        <button
-          onClick={onEdit}
-          className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400"
-        >
-          <Pencil size={15} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onEdit}
+            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400"
+          >
+            <Pencil size={15} />
+          </button>
+          <button
+            onClick={onDelete}
+            disabled={deleting}
+            className="p-1.5 rounded-lg hover:bg-sell/10 text-sell disabled:opacity-50"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
       </div>
 
       <div className="flex justify-between text-sm mb-1 ltr-nums">
@@ -197,6 +247,7 @@ function BuyDialog({
   const [note, setNote] = useState("");
   const [person, setPerson] = useState(NO_PERSON);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const reset = () => {
     setAmount("");
@@ -218,15 +269,21 @@ function BuyDialog({
           disabled={busy || !amount || !price}
           onClick={async () => {
             setBusy(true);
-            await createUsdtBuy({
-              amount: Number(amount) || 0,
-              price: Number(price) || 0,
-              note,
-              person,
-            });
-            setBusy(false);
-            onClose();
-            reset();
+            setError("");
+            try {
+              await createUsdtBuy({
+                amount: Number(amount) || 0,
+                price: Number(price) || 0,
+                note,
+                person,
+              });
+              onClose();
+              reset();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "حدث خطأ أثناء الحفظ");
+            } finally {
+              setBusy(false);
+            }
           }}
           className="btn-buy"
         >
@@ -262,6 +319,7 @@ function BuyDialog({
         <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <PersonSelect value={person} onChange={setPerson} />
+      {error && <p className="text-sell text-sm">{error}</p>}
     </Modal>
   );
 }
@@ -285,6 +343,7 @@ function SellDialog({
   const amountNum = Number(amount) || 0;
   const sellPriceNum = Number(sellPrice) || 0;
   const profit = (sellPriceNum - group.price) * amountNum;
+  const total = amountNum * sellPriceNum;
 
   return (
     <Modal
@@ -350,6 +409,10 @@ function SellDialog({
         <p className={`font-bold ltr-nums ${profit >= 0 ? "text-buy" : "text-sell"}`}>
           {fmtMoney(profit)}
         </p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 mb-1">
+          الإجمالي (المبلغ × سعر البيع)
+        </p>
+        <p className="font-bold ltr-nums">{fmtMoney(total)}</p>
       </div>
       <div>
         <label className="label">ملاحظة</label>
@@ -363,9 +426,10 @@ function SellDialog({
 
 function EditLotDialog({ group, onClose }: { group: LotGroup; onClose: () => void }) {
   const [values, setValues] = useState<Record<string, string>>(
-    Object.fromEntries(group.docs.map((d: Transaction) => [d.id, String(d.remainingAmount)]))
+    Object.fromEntries(group.docs.map((d: Transaction) => [d.id, String(d.amount)]))
   );
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   return (
     <Modal
@@ -377,11 +441,17 @@ function EditLotDialog({ group, onClose }: { group: LotGroup; onClose: () => voi
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            await Promise.all(
-              group.docs.map((d) => editLotRemaining(d.id, Number(values[d.id]) || 0))
-            );
-            setBusy(false);
-            onClose();
+            setError("");
+            try {
+              await Promise.all(
+                group.docs.map((d) => editLotAmount(d, Number(values[d.id]) || 0))
+              );
+              onClose();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "حدث خطأ أثناء الحفظ");
+            } finally {
+              setBusy(false);
+            }
           }}
           className="btn-gold"
         >
@@ -391,7 +461,7 @@ function EditLotDialog({ group, onClose }: { group: LotGroup; onClose: () => voi
     >
       {group.docs.map((d) => (
         <div key={d.id}>
-          <label className="label ltr-nums">{fmtMoney(d.amount)} — {new Date(d.timestamp).toLocaleDateString("en-US")}</label>
+          <label className="label ltr-nums">المبلغ الأصلي — {new Date(d.timestamp).toLocaleDateString("en-US")}</label>
           <input
             type="number"
             step="any"
@@ -402,6 +472,7 @@ function EditLotDialog({ group, onClose }: { group: LotGroup; onClose: () => voi
           />
         </div>
       ))}
+      {error && <p className="text-sell text-sm">{error}</p>}
     </Modal>
   );
 }

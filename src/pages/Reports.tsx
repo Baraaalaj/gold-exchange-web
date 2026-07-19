@@ -324,10 +324,15 @@ function TransactionsReportView({
 function EditTransactionModal({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
   const [note, setNote] = useState(tx.note);
   const [person, setPerson] = useState(tx.person);
+  const [amount, setAmount] = useState(String(tx.amount));
+  const [price, setPrice] = useState(String(tx.price));
   const [profit, setProfit] = useState(String(tx.profit));
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  const profitEditable = tx.serviceType !== "USDT";
+  const isSell = tx.transactionType === "SELL";
+  const amountLabel = isSell ? "المبلغ المباع" : "المبلغ المشترى";
+  const priceLabel = isSell ? "سعر البيع" : "سعر الشراء";
 
   return (
     <Modal
@@ -339,13 +344,21 @@ function EditTransactionModal({ tx, onClose }: { tx: Transaction; onClose: () =>
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            await updateTransactionFields(tx, {
-              note,
-              person,
-              ...(profitEditable ? { profit: Number(profit) || 0 } : {}),
-            });
-            setBusy(false);
-            onClose();
+            setError("");
+            try {
+              await updateTransactionFields(tx, {
+                note,
+                person,
+                amount: Number(amount) || 0,
+                price: Number(price) || 0,
+                profit: Number(profit) || 0,
+              });
+              onClose();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "حدث خطأ أثناء الحفظ");
+            } finally {
+              setBusy(false);
+            }
           }}
           className="btn-gold"
         >
@@ -358,19 +371,40 @@ function EditTransactionModal({ tx, onClose }: { tx: Transaction; onClose: () =>
         <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <PersonSelect value={person} onChange={setPerson} />
-      {profitEditable && (
-        <div>
-          <label className="label">الربح</label>
-          <input
-            type="number"
-            step="any"
-            dir="ltr"
-            className="input ltr-nums"
-            value={profit}
-            onChange={(e) => setProfit(e.target.value)}
-          />
-        </div>
-      )}
+      <div>
+        <label className="label">{amountLabel}</label>
+        <input
+          type="number"
+          step="any"
+          dir="ltr"
+          className="input ltr-nums"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="label">{priceLabel}</label>
+        <input
+          type="number"
+          step="any"
+          dir="ltr"
+          className="input ltr-nums"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="label">الربح</label>
+        <input
+          type="number"
+          step="any"
+          dir="ltr"
+          className="input ltr-nums"
+          value={profit}
+          onChange={(e) => setProfit(e.target.value)}
+        />
+      </div>
+      {error && <p className="text-sell text-sm">{error}</p>}
     </Modal>
   );
 }

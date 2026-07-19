@@ -102,10 +102,24 @@ export async function createUsdtSell(input: {
   await batch.commit();
 }
 
-export async function editLotRemaining(lotDocId: string, newRemainingAmount: number) {
-  await writeBatch(db)
-    .update(doc(db, "transactions", lotDocId), { remainingAmount: newRemainingAmount })
-    .commit();
+/**
+ * Corrects a BUY transaction's original amount (e.g. fixing a bad import). remainingAmount
+ * is derived automatically via FIFO from `amount`, so editing it directly has no effect —
+ * this updates `amount`/`total` instead, and adjusts the linked person's balance by the delta.
+ */
+export async function editLotAmount(tx: Transaction, newAmount: number) {
+  const newTotal = newAmount * tx.price;
+  const batch = writeBatch(db);
+  batch.update(doc(db, "transactions", tx.id), { amount: newAmount, total: newTotal });
+
+  const personRef = await findPersonRefByName(tx.person);
+  if (personRef) {
+    batch.update(personRef, {
+      balanceFromTx: increment(personBalanceDelta(tx.transactionType, newTotal - tx.total)),
+    });
+  }
+
+  await batch.commit();
 }
 
 export interface GenericTransactionInput {
@@ -177,10 +191,18 @@ export async function deleteTransaction(tx: Transaction) {
 
 export async function updateTransactionFields(
   tx: Transaction,
-  updates: { note?: string; person?: string; profit?: number }
+  updates: { note?: string; person?: string; profit?: number; amount?: number; price?: number }
 ) {
+  const nextAmount = updates.amount ?? tx.amount;
+  const nextPrice = updates.price ?? tx.price;
+  const nextTotal = nextAmount * nextPrice;
+  const totalChanged = updates.amount !== undefined || updates.price !== undefined;
+
+  const docUpdates: Record<string, unknown> = { ...updates };
+  if (totalChanged) docUpdates.total = nextTotal;
+
   const batch = writeBatch(db);
-  batch.update(doc(db, "transactions", tx.id), updates);
+  batch.update(doc(db, "transactions", tx.id), docUpdates);
 
   const nextPerson = updates.person ?? tx.person;
   if (nextPerson !== tx.person) {
@@ -193,7 +215,14 @@ export async function updateTransactionFields(
     const newPersonRef = await findPersonRefByName(nextPerson);
     if (newPersonRef) {
       batch.update(newPersonRef, {
-        balanceFromTx: increment(personBalanceDelta(tx.transactionType, tx.total)),
+        balanceFromTx: increment(personBalanceDelta(tx.transactionType, nextTotal)),
+      });
+    }
+  } else if (totalChanged) {
+    const personRef = await findPersonRefByName(tx.person);
+    if (personRef) {
+      batch.update(personRef, {
+        balanceFromTx: increment(personBalanceDelta(tx.transactionType, nextTotal - tx.total)),
       });
     }
   }

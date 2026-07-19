@@ -11,13 +11,14 @@ import { PersonSelect } from "../components/PersonSelect";
 import { createGenericTransaction, NO_PERSON } from "../lib/transactionActions";
 
 export function Home() {
-  const { transactions } = useTransactions();
-  const { initialBalance, updateInitialBalance } = useUsdtSettings();
+  const { transactions, error: txError } = useTransactions();
+  const { initialBalance, updateInitialBalance, error: balanceError } = useUsdtSettings();
   const { rate, setTodayRate } = useTodayRate();
   const { notes, addNote, updateNote, deleteNote } = useHomeNotes();
+  const loadError = txError || balanceError;
 
-  const buyTxs = useMemo(() => transactions.filter((t) => t.serviceType === "USDT"), [transactions]);
-  const balance = totalUsdtBalance(initialBalance, buyTxs);
+  const usdtTxs = useMemo(() => transactions.filter((t) => t.serviceType === "USDT"), [transactions]);
+  const balance = totalUsdtBalance(initialBalance, usdtTxs);
 
   const [balanceModal, setBalanceModal] = useState(false);
   const [ratesModal, setRatesModal] = useState(false);
@@ -31,6 +32,14 @@ export function Home() {
         <h1 className="text-2xl font-extrabold">الرئيسية</h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">نظرة سريعة على مكتب الصرافة</p>
       </div>
+
+      {loadError && (
+        <div className="card p-4 bg-sell/10 border border-sell/30 text-sell text-sm">
+          تعذّر تحميل البيانات من Firestore: {loadError}
+          <br />
+          تأكد من صلاحيات (rules) قاعدة البيانات ومن تسجيل الدخول بشكل صحيح.
+        </div>
+      )}
 
       <div className="card p-6 bg-gradient-to-br from-[#16213E] to-[#0F3460] text-white">
         <div className="flex items-center justify-between">
@@ -167,6 +176,7 @@ function InitialBalanceModal({
 }) {
   const [value, setValue] = useState(String(current));
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   return (
     <Modal
@@ -178,9 +188,15 @@ function InitialBalanceModal({
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            await onSave(Number(value) || 0);
-            setBusy(false);
-            onClose();
+            setError("");
+            try {
+              await onSave(Number(value) || 0);
+              onClose();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "حدث خطأ أثناء الحفظ");
+            } finally {
+              setBusy(false);
+            }
           }}
           className="btn-gold"
         >
@@ -198,6 +214,7 @@ function InitialBalanceModal({
         onChange={(e) => setValue(e.target.value)}
         onFocus={() => setValue(String(current))}
       />
+      {error && <p className="text-sell text-sm">{error}</p>}
     </Modal>
   );
 }
@@ -216,6 +233,7 @@ function RatesModal({
   const [buy, setBuy] = useState(String(current?.buyRate ?? ""));
   const [sell, setSell] = useState(String(current?.sellRate ?? ""));
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   return (
     <Modal
@@ -227,9 +245,15 @@ function RatesModal({
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            await onSave(Number(buy) || 0, Number(sell) || 0);
-            setBusy(false);
-            onClose();
+            setError("");
+            try {
+              await onSave(Number(buy) || 0, Number(sell) || 0);
+              onClose();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "حدث خطأ أثناء الحفظ");
+            } finally {
+              setBusy(false);
+            }
           }}
           className="btn-gold"
         >
@@ -259,6 +283,7 @@ function RatesModal({
           onChange={(e) => setSell(e.target.value)}
         />
       </div>
+      {error && <p className="text-sell text-sm">{error}</p>}
     </Modal>
   );
 }
@@ -270,6 +295,7 @@ function ManualTransactionModal({ open, onClose }: { open: boolean; onClose: () 
   const [note, setNote] = useState("");
   const [person, setPerson] = useState(NO_PERSON);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const reset = () => {
     setName("");
@@ -292,19 +318,25 @@ function ManualTransactionModal({ open, onClose }: { open: boolean; onClose: () 
           disabled={busy || !name || !amount}
           onClick={async () => {
             setBusy(true);
-            await createGenericTransaction({
-              serviceType: "MANUAL",
-              transactionType: "SELL",
-              amount: Number(amount) || 0,
-              price: 1,
-              total: Number(amount) || 0,
-              profit: Number(profit) || 0,
-              note: note ? `${name} - ${note}` : name,
-              person,
-            });
-            setBusy(false);
-            onClose();
-            reset();
+            setError("");
+            try {
+              await createGenericTransaction({
+                serviceType: "MANUAL",
+                transactionType: "SELL",
+                amount: Number(amount) || 0,
+                price: 1,
+                total: Number(amount) || 0,
+                profit: Number(profit) || 0,
+                note: note ? `${name} - ${note}` : name,
+                person,
+              });
+              onClose();
+              reset();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "حدث خطأ أثناء الحفظ");
+            } finally {
+              setBusy(false);
+            }
           }}
           className="btn-sell"
         >
@@ -343,6 +375,7 @@ function ManualTransactionModal({ open, onClose }: { open: boolean; onClose: () 
         <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <PersonSelect value={person} onChange={setPerson} />
+      {error && <p className="text-sell text-sm">{error}</p>}
     </Modal>
   );
 }

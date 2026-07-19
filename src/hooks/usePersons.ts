@@ -15,13 +15,23 @@ import type { Person } from "../types";
 export function usePersons() {
   const [persons, setPersons] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, "persons"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      setPersons(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Person));
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setPersons(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Person));
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        console.error("usePersons onSnapshot error:", err);
+        setError(err.message);
+        setLoading(false);
+      }
+    );
     return unsub;
   }, []);
 
@@ -44,5 +54,5 @@ export function usePersons() {
     await deleteDoc(doc(db, "persons", id));
   };
 
-  return { persons, loading, addPerson, updatePerson, removePerson };
+  return { persons, loading, error, addPerson, updatePerson, removePerson };
 }
