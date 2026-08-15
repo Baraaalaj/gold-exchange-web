@@ -11,10 +11,15 @@ export interface LotGroup {
 }
 
 /**
- * Computes each BUY transaction's remaining amount via global FIFO (oldest BUY first)
- * across the full USDT history, ignoring any stored `remainingAmount`. This is required
- * because legacy transactions (e.g. imported from the Android app) never had a per-lot
- * remaining amount tracked, so trusting the stored field would show them as fully unsold.
+ * Computes each BUY transaction's remaining amount across the full USDT history, ignoring
+ * any stored `remainingAmount` (legacy transactions never had a per-lot amount tracked, so
+ * trusting the stored field would show them as fully unsold).
+ *
+ * Every SELL made through this app records exactly which BUY lots it drew from in `lotId`
+ * (a JSON list of `{ lotId, amount }`) — that recorded link is honored first, so selling from
+ * lot #3 always deducts lot #3, regardless of how old it is. Only legacy SELLs without that
+ * link (e.g. imported from Android, which never tracked lots) fall back to a best-effort
+ * oldest-BUY-first guess.
  */
 function computeFifoRemaining(usdtTxs: Transaction[]): Map<string, number> {
   const sorted = [...usdtTxs].sort((a, b) => a.timestamp - b.timestamp);
@@ -25,7 +30,27 @@ function computeFifoRemaining(usdtTxs: Transaction[]): Map<string, number> {
     if (tx.transactionType === "BUY") {
       remaining.set(tx.id, tx.amount);
       buyQueue.push(tx);
+      continue;
+    }
+
+    let refs: { lotId: string; amount: number }[] | null = null;
+    if (tx.lotId) {
+      try {
+        const parsed = JSON.parse(tx.lotId);
+        if (Array.isArray(parsed) && parsed.length > 0) refs = parsed;
+      } catch {
+        refs = null;
+      }
+    }
+
+    if (refs) {
+      for (const r of refs) {
+        const rem = remaining.get(r.lotId);
+        if (rem === undefined) continue; // referenced lot isn't in this set — nothing to do
+        remaining.set(r.lotId, Math.max(0, rem - r.amount));
+      }
     } else {
+      // No recorded link (legacy data) — best-effort guess: deduct oldest lots first.
       let toDeduct = tx.amount;
       for (const buy of buyQueue) {
         if (toDeduct <= 1e-9) break;
