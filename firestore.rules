@@ -1,9 +1,55 @@
 rules_version = '2';
 
+// ملاحظة: هاد الملف مرجعي بالريبو فقط — القواعد الفعلية المطبّقة تُدار يدوياً من
+// Firebase Console (Firestore Database → Rules)، ما في ربط تلقائي (firebase deploy) بالمشروع.
+// لازم يبقى هاد الملف مطابق لأي تعديل تسويه هناك.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
+
+    match /transactions/{transactionId} {
       allow read, write: if request.auth != null;
+    }
+
+    match /persons/{personId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /customers/{customerId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /settings/{settingId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /daily_rates/{rateId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /service_daily_rates/{rateId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /external_revenues/{revenueId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /profit_adjustments/{adjustmentId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /profit_edit_requests/{requestId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /users/{userId} {
+      allow get, list: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
