@@ -35,11 +35,21 @@ function whatsappReminderUrl(customer: Customer): string {
 }
 
 export function Customers() {
-  const { customers, addCustomer, updateCustomer, removeCustomer } = useCustomers();
+  const { customers, error, addCustomer, updateCustomer, removeCustomer } = useCustomers();
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [addError, setAddError] = useState("");
   const [editing, setEditing] = useState<Customer | null>(null);
+  const [actionError, setActionError] = useState("");
+
+  const handleRemove = async (id: string) => {
+    try {
+      await removeCustomer(id);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "تعذّر الحذف");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -54,6 +64,18 @@ export function Customers() {
           <Plus size={18} /> عميل جديد
         </button>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-sell/10 border border-sell/30 text-sell text-sm">
+          تعذّر تحميل بيانات العملاء: {error}
+          <br />
+          غالباً السبب: قواعد أمان Firestore (Rules) على Firebase Console ما بتغطي collection اسمها
+          "customers" — لازم تضيف قاعدة لها متل باقي الـ collections.
+        </div>
+      )}
+      {actionError && (
+        <div className="card p-4 bg-sell/10 border border-sell/30 text-sell text-sm">{actionError}</div>
+      )}
 
       {customers.length === 0 ? (
         <p className="text-sm text-slate-400 text-center py-10">لا يوجد عملاء بعد</p>
@@ -107,7 +129,7 @@ export function Customers() {
                   </a>
                 )}
                 <button
-                  onClick={() => removeCustomer(c.id)}
+                  onClick={() => handleRemove(c.id)}
                   className="p-2.5 rounded-xl hover:bg-sell/10 text-sell"
                 >
                   <Trash2 size={16} />
@@ -126,10 +148,15 @@ export function Customers() {
           <button
             disabled={!newName.trim()}
             onClick={async () => {
-              await addCustomer(newName.trim(), newPhone.trim());
-              setNewName("");
-              setNewPhone("");
-              setAddOpen(false);
+              setAddError("");
+              try {
+                await addCustomer(newName.trim(), newPhone.trim());
+                setNewName("");
+                setNewPhone("");
+                setAddOpen(false);
+              } catch (e) {
+                setAddError(e instanceof Error ? e.message : "تعذّر الحفظ");
+              }
             }}
             className="btn-gold"
           >
@@ -150,6 +177,7 @@ export function Customers() {
             onChange={(e) => setNewPhone(e.target.value)}
           />
         </div>
+        {addError && <p className="text-sell text-sm">{addError}</p>}
       </Modal>
 
       {editing && (
@@ -180,6 +208,7 @@ function EditCustomerModal({
   const [debtError, setDebtError] = useState("");
   const [notes, setNotes] = useState(customer.notes);
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   return (
     <Modal
@@ -198,8 +227,14 @@ function EditCustomerModal({
               return;
             }
             setBusy(true);
-            await onSave({ phone, debt, notes });
-            setBusy(false);
+            setSaveError("");
+            try {
+              await onSave({ phone, debt, notes });
+            } catch (e) {
+              setSaveError(e instanceof Error ? e.message : "تعذّر الحفظ");
+            } finally {
+              setBusy(false);
+            }
           }}
           className="btn-gold"
         >
@@ -228,6 +263,7 @@ function EditCustomerModal({
         <label className="label">ملاحظات</label>
         <textarea className="input min-h-24" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
+      {saveError && <p className="text-sell text-sm">{saveError}</p>}
     </Modal>
   );
 }
