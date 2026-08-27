@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Repeat } from "lucide-react";
 import type { ServiceType, TransactionType } from "../types";
 import { SERVICE_LABELS } from "../types";
 import { useTodayRate } from "../hooks/useDailyRates";
+import { useTransactions } from "../hooks/useTransactions";
 import { PersonSelect } from "../components/PersonSelect";
 import { createGenericTransaction, createUsdtBuy, NO_PERSON } from "../lib/transactionActions";
 import { fmtMoney } from "../lib/format";
@@ -30,6 +31,7 @@ const FIXED_TYPE: Partial<Record<ServiceType, TransactionType>> = {
 export function AddTransaction() {
   const navigate = useNavigate();
   const { rate } = useTodayRate();
+  const { transactions } = useTransactions();
 
   const [service, setService] = useState<ServiceType>("PAYPAL");
   const [transactionType, setTransactionType] = useState<TransactionType>("BUY");
@@ -59,6 +61,31 @@ export function AddTransaction() {
     const diffPct = Math.abs(priceNum - reference) / reference;
     return diffPct > 0.02 ? `السعر يختلف عن سعر اليوم (${fmtMoney(reference)}) بأكثر من 2%` : null;
   }, [service, rate, priceNum, effectiveType]);
+
+  // آخر عملية بنفس الخدمة (ونفس نوع العملية لو ما كان النوع ثابت) — لتعبئة الفورم منها بسرعة
+  const lastSimilar = useMemo(() => {
+    const matches = transactions.filter(
+      (t) => t.serviceType === service && (fixedType ? true : t.transactionType === transactionType)
+    );
+    return matches.length ? matches.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)) : null;
+  }, [transactions, service, fixedType, transactionType]);
+
+  const repeatLast = () => {
+    if (!lastSimilar) return;
+    setAmount(String(lastSimilar.amount));
+    if (usesPrice) setPrice(String(lastSimilar.price));
+    if (!fixedType) setTransactionType(lastSimilar.transactionType);
+    setProfit(lastSimilar.profit ? String(lastSimilar.profit) : "");
+    setManualProfit(Boolean(lastSimilar.profit));
+    setPerson(lastSimilar.person);
+    if (isManual) {
+      const [n, ...rest] = lastSimilar.note.split(" - ");
+      setName(n ?? "");
+      setNote(rest.join(" - "));
+    } else {
+      setNote(lastSimilar.note);
+    }
+  };
 
   const reset = () => {
     setAmount("");
@@ -117,9 +144,16 @@ export function AddTransaction() {
 
   return (
     <div className="space-y-6 max-w-lg">
-      <div>
-        <h1 className="text-2xl font-extrabold">إضافة معاملة</h1>
-        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">سجّل عملية شراء أو بيع لأي خدمة</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold">إضافة معاملة</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">سجّل عملية شراء أو بيع لأي خدمة</p>
+        </div>
+        {lastSimilar && (
+          <button onClick={repeatLast} className="btn-ghost shrink-0 text-sm">
+            <Repeat size={15} /> كرر آخر عملية
+          </button>
+        )}
       </div>
 
       <div className="card p-5 space-y-4">

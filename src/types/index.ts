@@ -43,6 +43,15 @@ export interface Person {
   createdAt: number;
 }
 
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  debt: number;
+  notes: string;
+  createdAt: number;
+}
+
 export interface ExternalRevenue {
   id: string;
   profit: number;

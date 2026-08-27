@@ -27,7 +27,7 @@ import { exportReportPdf } from "../lib/exportPdf";
 import { Modal } from "../components/Modal";
 import { PersonSelect } from "../components/PersonSelect";
 
-type Tab = "daily" | "monthly" | "weekly";
+type Tab = "daily" | "monthly" | "weekly" | "analytics";
 
 function toDateInputValue(d: Date) {
   const y = d.getFullYear();
@@ -75,14 +75,14 @@ export function Reports() {
         </div>
       </div>
 
-      <div className="flex gap-2">
-        {(["daily", "monthly", "weekly"] as Tab[]).map((t) => (
+      <div className="flex gap-2 flex-wrap">
+        {(["daily", "monthly", "weekly", "analytics"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={tab === t ? "btn-gold" : "btn-ghost"}
           >
-            {t === "daily" ? "يومي" : t === "monthly" ? "شهري" : "أسبوعي"}
+            {t === "daily" ? "يومي" : t === "monthly" ? "شهري" : t === "weekly" ? "أسبوعي" : "تحليلات"}
           </button>
         ))}
       </div>
@@ -139,6 +139,7 @@ export function Reports() {
       )}
 
       {tab === "weekly" && <WeeklyView transactions={transactions} />}
+      {tab === "analytics" && <AnalyticsView transactions={transactions} />}
 
       {profitAdjust !== null && (
         <ProfitAdjustModal sign={profitAdjust} onClose={() => setProfitAdjust(null)} />
@@ -543,6 +544,105 @@ function WeeklyView({ transactions }: { transactions: Transaction[] }) {
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">أفضل سعر بيع USDT هذا الأسبوع</p>
           <p className="font-extrabold text-lg text-sell ltr-nums">{bestSell !== null ? fmtMoney(bestSell) : "—"}</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsView({ transactions }: { transactions: Transaction[] }) {
+  const monthlyData = useMemo(() => {
+    const now = new Date();
+    const months: { label: string; profit: number; year: number; month: number }[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({
+        label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+        profit: 0,
+        year: d.getFullYear(),
+        month: d.getMonth(),
+      });
+    }
+    for (const m of months) {
+      const txs = transactions.filter((t) => isInMonth(t.timestamp, m.year, m.month));
+      m.profit = Math.round(totalProfit(txs) * 100) / 100;
+    }
+    return months;
+  }, [transactions]);
+
+  const serviceData = useMemo(
+    () =>
+      summarizeByService(transactions)
+        .map((row) => ({ label: SERVICE_LABELS[row.service], profit: Math.round(row.profit * 100) / 100 }))
+        .sort((a, b) => b.profit - a.profit),
+    [transactions]
+  );
+
+  const busiestDay = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of transactions) {
+      const key = new Date(t.timestamp).toLocaleDateString("en-CA");
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    let best: { date: string; count: number } | null = null;
+    for (const [date, count] of counts) {
+      if (!best || count > best.count) best = { date, count };
+    }
+    return best;
+  }, [transactions]);
+
+  return (
+    <div className="space-y-6">
+      <div className="card p-5">
+        <h3 className="font-bold mb-4">اتجاه الربح — آخر 12 شهر</h3>
+        <div className="h-64" dir="ltr">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={monthlyData}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+              <XAxis dataKey="label" fontSize={11} />
+              <YAxis fontSize={12} />
+              <Tooltip formatter={(v: number) => fmtMoney(v)} />
+              <Bar dataKey="profit" radius={[6, 6, 0, 0]}>
+                {monthlyData.map((d, i) => (
+                  <Cell key={i} fill={d.profit >= 0 ? "#26A17B" : "#C62828"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="card p-5">
+        <h3 className="font-bold mb-4">مقارنة الربح حسب الخدمة</h3>
+        {serviceData.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">لا توجد بيانات بعد</p>
+        ) : (
+          <div className="h-64" dir="ltr">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={serviceData} layout="vertical" margin={{ left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis type="number" fontSize={12} />
+                <YAxis dataKey="label" type="category" width={110} fontSize={12} />
+                <Tooltip formatter={(v: number) => fmtMoney(v)} />
+                <Bar dataKey="profit" radius={[0, 6, 6, 0]}>
+                  {serviceData.map((d, i) => (
+                    <Cell key={i} fill={d.profit >= 0 ? "#26A17B" : "#C62828"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-4 text-center">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">أكثر يوم نشاطاً (على الإطلاق)</p>
+        {busiestDay ? (
+          <p className="font-extrabold text-lg ltr-nums">
+            {busiestDay.date} — {busiestDay.count} عملية
+          </p>
+        ) : (
+          <p className="text-sm text-slate-400">لا توجد بيانات بعد</p>
+        )}
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import {
   Home,
   Landmark,
   Users,
+  Contact,
   BarChart3,
   Settings as SettingsIcon,
   Plus,
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { to: "/", label: "الرئيسية", icon: Home, end: true },
   { to: "/usdt", label: "USDT", icon: Landmark, end: false },
   { to: "/persons", label: "الأشخاص", icon: Users, end: false },
+  { to: "/customers", label: "العملاء", icon: Contact, end: false },
   { to: "/reports", label: "التقارير", icon: BarChart3, end: false },
   { to: "/settings", label: "الإعدادات", icon: SettingsIcon, end: false },
 ];

@@ -9,6 +9,7 @@ import { PinGate } from "./pages/PinGate";
 import { Home } from "./pages/Home";
 import { Usdt } from "./pages/Usdt";
 import { Persons } from "./pages/Persons";
+import { Customers } from "./pages/Customers";
 import { Reports } from "./pages/Reports";
 import { AddTransaction } from "./pages/AddTransaction";
 import { Settings } from "./pages/Settings";
@@ -92,6 +93,14 @@ function App() {
         element={
           <RequireAuth>
             <Persons />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/customers"
+        element={
+          <RequireAuth>
+            <Customers />
           </RequireAuth>
         }
       />
