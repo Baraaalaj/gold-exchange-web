@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Download, Pencil, Trash2 } from "lucide-react";
+import { Download, Minus, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTransactions } from "../hooks/useTransactions";
 import { usePersons } from "../hooks/usePersons";
 import { SERVICE_LABELS } from "../types";
@@ -17,7 +17,12 @@ import type { Transaction } from "../types";
 import { fmtDateTime, fmtMoney } from "../lib/format";
 import { isInMonth, isSameDay, lastNDays } from "../lib/dateRanges";
 import { summarizeByService, totalProfit } from "../lib/profit";
-import { deleteTransaction, updateTransactionFields } from "../lib/transactionActions";
+import {
+  createGenericTransaction,
+  deleteTransaction,
+  NO_PERSON,
+  updateTransactionFields,
+} from "../lib/transactionActions";
 import { exportReportPdf } from "../lib/exportPdf";
 import { Modal } from "../components/Modal";
 import { PersonSelect } from "../components/PersonSelect";
@@ -35,6 +40,7 @@ export function Reports() {
   const { transactions } = useTransactions();
   const { persons } = usePersons();
   const [tab, setTab] = useState<Tab>("daily");
+  const [profitAdjust, setProfitAdjust] = useState<1 | -1 | null>(null);
 
   const [dateStr, setDateStr] = useState(toDateInputValue(new Date()));
   const selectedDate = useMemo(() => new Date(dateStr + "T00:00:00"), [dateStr]);
@@ -58,6 +64,14 @@ export function Reports() {
         <div>
           <h1 className="text-2xl font-extrabold">التقارير</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">تتبع أداء المكتب اليومي والشهري</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setProfitAdjust(1)} className="btn-ghost text-buy">
+            <Plus size={16} /> زيادة على ربح اليوم
+          </button>
+          <button onClick={() => setProfitAdjust(-1)} className="btn-ghost text-sell">
+            <Minus size={16} /> خصم من ربح اليوم
+          </button>
         </div>
       </div>
 
@@ -125,7 +139,76 @@ export function Reports() {
       )}
 
       {tab === "weekly" && <WeeklyView transactions={transactions} />}
+
+      {profitAdjust !== null && (
+        <ProfitAdjustModal sign={profitAdjust} onClose={() => setProfitAdjust(null)} />
+      )}
     </div>
+  );
+}
+
+function ProfitAdjustModal({ sign, onClose }: { sign: 1 | -1; onClose: () => void }) {
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const isAdd = sign === 1;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={isAdd ? "زيادة على ربح اليوم" : "خصم من ربح اليوم"}
+      footer={
+        <button
+          disabled={busy || !amount}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              const value = Math.abs(Number(amount) || 0);
+              await createGenericTransaction({
+                serviceType: "MANUAL",
+                transactionType: "SELL",
+                amount: 0,
+                price: 1,
+                total: 0,
+                profit: sign * value,
+                note: note || (isAdd ? "زيادة يدوية على الربح" : "خصم يدوي من الربح"),
+                person: NO_PERSON,
+              });
+              onClose();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "حدث خطأ أثناء الحفظ");
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className={isAdd ? "btn-buy" : "btn-sell"}
+        >
+          {isAdd ? "إضافة" : "خصم"}
+        </button>
+      }
+    >
+      <div>
+        <label className="label">المبلغ</label>
+        <input
+          type="number"
+          step="any"
+          dir="ltr"
+          className="input ltr-nums"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          autoFocus
+        />
+      </div>
+      <div>
+        <label className="label">ملاحظة (اختياري)</label>
+        <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+      {error && <p className="text-sell text-sm">{error}</p>}
+    </Modal>
   );
 }
 

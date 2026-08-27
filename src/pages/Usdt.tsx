@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pencil, Plus, TrendingDown, TrendingUp, Trash2, Wallet } from "lucide-react";
+import { Pencil, Plus, RotateCcw, TrendingDown, TrendingUp, Trash2, Wallet } from "lucide-react";
 import { useTransactions } from "../hooks/useTransactions";
 import { useUsdtSettings } from "../hooks/useSettings";
 import { useTodayRate } from "../hooks/useDailyRates";
@@ -19,7 +19,7 @@ import type { Transaction } from "../types";
 
 export function Usdt() {
   const { transactions, error: txError } = useTransactions();
-  const { initialBalance, error: balanceError } = useUsdtSettings();
+  const { initialBalance, updateInitialBalance, error: balanceError } = useUsdtSettings();
   const { rate } = useTodayRate();
   const loadError = txError || balanceError;
 
@@ -40,6 +40,9 @@ export function Usdt() {
   const [editGroup, setEditGroup] = useState<LotGroup | null>(null);
   const [deletingPrice, setDeletingPrice] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   const handleDeleteGroup = async (group: LotGroup) => {
     const ok = window.confirm(
@@ -57,6 +60,25 @@ export function Usdt() {
     }
   };
 
+  // إعادة تصفير: تحذف فقط الخانات النشطة (عمليات الشراء غير المباعة بالكامل) وتصفّر الرصيد
+  // الأولي — سجل عمليات البيع التاريخية (وبالتالي أرباح التقارير) ما بينحذف ولا بيتأثر.
+  // نفس قاعدة بيانات Firestore يستخدمها تطبيق الأندرويد، فالخانات بتصير صفر هناك كمان تلقائياً.
+  const activeLotDocs = useMemo(() => lotGroups.flatMap((g) => g.docs), [lotGroups]);
+
+  const handleReset = async () => {
+    setResetBusy(true);
+    setResetError("");
+    try {
+      await Promise.all(activeLotDocs.map((tx) => deleteTransaction(tx)));
+      await updateInitialBalance(0);
+      setResetOpen(false);
+    } catch (e) {
+      setResetError(e instanceof Error ? e.message : "حدث خطأ أثناء التصفير");
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -64,9 +86,14 @@ export function Usdt() {
           <h1 className="text-2xl font-extrabold">USDT</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">إدارة خانات الشراء والبيع</p>
         </div>
-        <button onClick={() => setBuyOpen(true)} className="btn-buy">
-          <Plus size={18} /> شراء USDT
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setResetOpen(true)} className="btn-ghost text-sell">
+            <RotateCcw size={18} /> إعادة تصفير
+          </button>
+          <button onClick={() => setBuyOpen(true)} className="btn-buy">
+            <Plus size={18} /> شراء USDT
+          </button>
+        </div>
       </div>
 
       {loadError && (
@@ -145,6 +172,14 @@ export function Usdt() {
         />
       )}
       {editGroup && <EditLotDialog group={editGroup} onClose={() => setEditGroup(null)} />}
+      <ResetDialog
+        open={resetOpen}
+        onClose={() => setResetOpen(false)}
+        onConfirm={handleReset}
+        busy={resetBusy}
+        error={resetError}
+        count={activeLotDocs.length}
+      />
     </div>
   );
 }
@@ -230,6 +265,50 @@ function LotCard({
         <TrendingDown size={16} /> بيع
       </button>
     </div>
+  );
+}
+
+function ResetDialog({
+  open,
+  onClose,
+  onConfirm,
+  busy,
+  error,
+  count,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  busy: boolean;
+  error: string;
+  count: number;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="إعادة تصفير رصيد USDT"
+      footer={
+        <button disabled={busy} onClick={onConfirm} className="btn-sell">
+          {busy ? "جارٍ التصفير..." : "نعم، صفّر كل شي"}
+        </button>
+      }
+    >
+      <p className="text-sm">
+        هذا الإجراء سيحذف <b className="ltr-nums">{count}</b> عملية شراء (الخانات النشطة حالياً فقط)
+        ويصفّر الرصيد الأولي إلى 0 — فيصير الرصيد وعدد الخانات صفر مباشرة. سجل عمليات البيع
+        التاريخية وأرباح USDT بصفحة التقارير <b>ما بينحذف ولا بيتأثر إطلاقاً</b>.
+      </p>
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        بما إنو نفس قاعدة البيانات مستخدمة بتطبيق الأندرويد، الخانات هناك رح تصير صفر تلقائياً كمان.
+      </p>
+      <p className="text-sm text-sell font-semibold">
+        تنبيه: هذا الإجراء لا يمكن التراجع عنه. ملاحظة: لو كان هناك خلل قديم بالبيانات (مثلاً عمليات
+        بيع تاريخية أكبر من الشراء المرتبط فيها)، قد يبقى الرصيد المعروض غير صفر تماماً حتى بعد
+        التصفير — هذا مؤشر على خلل بالبيانات القديمة وليس بهذا الإجراء نفسه.
+      </p>
+      {error && <p className="text-sell text-sm">{error}</p>}
+    </Modal>
   );
 }
 
