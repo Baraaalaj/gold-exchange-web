@@ -61,16 +61,23 @@ export function Usdt() {
   };
 
   // إعادة تصفير: تحذف فقط الخانات النشطة (عمليات الشراء غير المباعة بالكامل) وتصفّر الرصيد
-  // الأولي — سجل عمليات البيع التاريخية (وبالتالي أرباح التقارير) ما بينحذف ولا بيتأثر.
-  // نفس قاعدة بيانات Firestore يستخدمها تطبيق الأندرويد، فالخانات بتصير صفر هناك كمان تلقائياً.
+  // الحالي المعروض إلى 0 — سجل عمليات البيع التاريخية (وبالتالي أرباح التقارير) ما بينحذف ولا
+  // بيتأثر. نفس قاعدة بيانات Firestore يستخدمها تطبيق الأندرويد، فالخانات بتصير صفر هناك تلقائياً.
+  //
+  // ملاحظة: الرصيد الأولي بعد التصفير مش بالضرورة 0 حرفياً — بيتحسب بحيث "الرصيد الحالي"
+  // (initialBalance + كل الشراء - كل البيع) يطلع 0 بالضبط، حتى لو كان هناك عدم توازن تاريخي
+  // بين مجموع الشراء والبيع بالبيانات القديمة غير النشطة. أي شراء جديد بعد هيك بيزيد الرصيد
+  // بشكل طبيعي وصحيح.
   const activeLotDocs = useMemo(() => lotGroups.flatMap((g) => g.docs), [lotGroups]);
 
   const handleReset = async () => {
     setResetBusy(true);
     setResetError("");
     try {
+      const activeSum = activeLotDocs.reduce((s, d) => s + d.amount, 0);
+      const newInitialBalance = activeSum - balance + initialBalance;
       await Promise.all(activeLotDocs.map((tx) => deleteTransaction(tx)));
-      await updateInitialBalance(0);
+      await updateInitialBalance(newInitialBalance);
       setResetOpen(false);
     } catch (e) {
       setResetError(e instanceof Error ? e.message : "حدث خطأ أثناء التصفير");
@@ -296,17 +303,15 @@ function ResetDialog({
     >
       <p className="text-sm">
         هذا الإجراء سيحذف <b className="ltr-nums">{count}</b> عملية شراء (الخانات النشطة حالياً فقط)
-        ويصفّر الرصيد الأولي إلى 0 — فيصير الرصيد وعدد الخانات صفر مباشرة. سجل عمليات البيع
-        التاريخية وأرباح USDT بصفحة التقارير <b>ما بينحذف ولا بيتأثر إطلاقاً</b>.
+        ويضبط الرصيد الحالي المعروض ليصير <b className="ltr-nums">0</b> بالضبط — والخانات صفر
+        مباشرة. سجل عمليات البيع التاريخية وأرباح USDT بصفحة التقارير{" "}
+        <b>ما بينحذف ولا بيتأثر إطلاقاً</b>.
       </p>
       <p className="text-sm text-slate-500 dark:text-slate-400">
         بما إنو نفس قاعدة البيانات مستخدمة بتطبيق الأندرويد، الخانات هناك رح تصير صفر تلقائياً كمان.
+        أي عملية شراء جديدة بعد التصفير رح تزيد الرصيد بشكل طبيعي وصحيح.
       </p>
-      <p className="text-sm text-sell font-semibold">
-        تنبيه: هذا الإجراء لا يمكن التراجع عنه. ملاحظة: لو كان هناك خلل قديم بالبيانات (مثلاً عمليات
-        بيع تاريخية أكبر من الشراء المرتبط فيها)، قد يبقى الرصيد المعروض غير صفر تماماً حتى بعد
-        التصفير — هذا مؤشر على خلل بالبيانات القديمة وليس بهذا الإجراء نفسه.
-      </p>
+      <p className="text-sm text-sell font-semibold">تنبيه: هذا الإجراء لا يمكن التراجع عنه.</p>
       {error && <p className="text-sell text-sm">{error}</p>}
     </Modal>
   );
